@@ -1,22 +1,25 @@
 from django.db import models
 from django.urls import reverse
 from django.contrib.auth.models import User
-from django.db.models import Count
+from django.db.models import Count, Prefetch
 
 
 class PostQuerySet(models.QuerySet):
     def year(self, year):
-        posts_at_year = self.filter(
-            published_at__year=year).order_by('published_at')
-        return posts_at_year
+        return self.filter(published_at__year=year).order_by('published_at')
 
     def popular(self):
         return self.annotate(likes_count=Count('likes')).order_by('-likes_count')
 
     def fetch_with_comments_count(self):
-        posts_with_comments = self.annotate(comments_count=Count('comments'))
-        posts_list = list(posts_with_comments)
-        return posts_list
+        return self.annotate(comments_count=Count('comments'))
+
+    def fetch_with_related_data(self):
+        tags_with_counts = Tag.objects.annotate(posts_count=Count('posts'))
+        return self.prefetch_related(
+            Prefetch('tags', queryset=tags_with_counts),
+            'author'
+        ).annotate(comments_count=Count('comments'))
 
 
 class TagQuerySet(models.QuerySet):
@@ -34,7 +37,6 @@ class Post(models.Model):
     slug = models.SlugField('Название в виде url', max_length=200)
     image = models.ImageField('Картинка')
     published_at = models.DateTimeField('Дата и время публикации')
-
     author = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
@@ -55,13 +57,13 @@ class Post(models.Model):
         verbose_name="комменты"
     )
 
+    objects = PostQuerySet.as_manager()
+
     def __str__(self):
         return self.title
 
     def get_absolute_url(self):
         return reverse('post_detail', args={'slug': self.slug})
-
-    objects = PostQuerySet.as_manager()
 
     class Meta:
         ordering = ['-published_at']
@@ -93,7 +95,11 @@ class Comment(models.Model):
     post = models.ForeignKey(
         'Post',
         on_delete=models.CASCADE,
-        verbose_name='Пост, к которому написан')
+        verbose_name='Пост, к которому написан',
+        # related_name="comments",
+
+
+    )
     author = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
